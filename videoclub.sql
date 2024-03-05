@@ -28,6 +28,7 @@ create table if not exists direccion(
 create table if not exists peliculas( 
 	id_pelicula serial primary key,
 	titulo varchar(80) not null,
+	ano_peliculas integer null,
 	sipnosis text null	
 );
 
@@ -702,16 +703,36 @@ select cp.id_copia, s.id_socio, tv.fecha_alquiler_texto, tv.fecha_alquiler, tv.f
 inner join socios s on s.dni_socio = tv.dni 
 inner join copias_pelicula cp on cp.id_copia  = tv.id_copia;
 
-/*Que películas están disponibles para alquilar en este momento*/
+/*Que películas están disponibles para alquilar en este momento? Todas las películas que hay menos las películas que están alquiladas*/
 
-select distinct p.titulo, pp.id_copia from peliculas_prestadas pp
+/*Todas las películas alquiladas*/
+create view peliculas_alquiladas as select distinct p.titulo, pp.id_copia from peliculas_prestadas pp
 inner join copias_pelicula cp on cp.id_copia = pp.id_copia
 inner join peliculas p on p.id_pelicula = cp.id_pelicula
-where fecha_devolucion is null 
+where pp.fecha_devolucion is null
 order by p.titulo;
+
+/*Total películas*/
+create view total_peliculas as select distinct p.titulo, pp.id_copia from peliculas_prestadas pp
+inner join copias_pelicula cp on cp.id_copia = pp.id_copia
+inner join peliculas p on p.id_pelicula = cp.id_pelicula
+order by p.titulo;
+
+/*Películas disponibles = total películas - películas alquiladas */
+
+select tp.titulo, tp.id_copia from total_peliculas tp
+left join peliculas_alquiladas pa on pa.id_copia = tp.id_copia
+where pa.id_copia is null;
+
+/*Para recordar!!
+ * Al hacer el left join, los campos que coinciden entre total películas y peliculas alquiladas se "unifican". Si no hay coincidencia, los campos de películas alquiladas se quedan vacías con valor NULL.
+ * Por eso la condición pa.id_copia is null
+ * */
+
+
 /*
- Cual es el género favorito de cada uno de mis socios para poder recomendarle
-películas cuando venga.
+ ¿Cual es el género favorito de cada uno de mis socios para poder recomendarle
+películas cuando venga?
  */
 
 create view peliculas_genero_socio 
@@ -729,7 +750,7 @@ inner join generos g on g.id_genero = pg.id_genero
 group by s.id_socio, nombre_completo, g.genero
 order by nombre_completo;
 
-WITH MaxGenero AS (
+WITH max_genero AS (
     select 
     pgs.id_socio,
     MAX(pgs.cantidad_peliculas_genero) AS max_genero_alquileres
@@ -742,7 +763,7 @@ SELECT
 	pgs.genero, 
 	pgs.cantidad_peliculas_genero
 FROM peliculas_genero_socio pgs
-INNER JOIN MaxGenero m ON pgs.id_socio = m.id_socio
+INNER JOIN max_genero m ON pgs.id_socio = m.id_socio
 WHERE pgs.cantidad_peliculas_genero = m.max_genero_alquileres
 ORDER BY pgs.id_socio;
 
