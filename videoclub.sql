@@ -720,9 +720,10 @@ order by p.titulo;
 
 /*Películas disponibles = total películas - películas alquiladas */
 
-select tp.titulo, tp.id_copia from total_peliculas tp
+select tp.titulo, count(*) as numero_peliculas_disponibles from total_peliculas tp
 left join peliculas_alquiladas pa on pa.id_copia = tp.id_copia
-where pa.id_copia is null;
+where pa.id_copia is null
+group by tp.titulo;
 
 /*Para recordar!!
  * Al hacer el left join, los campos que coinciden entre total películas y peliculas alquiladas se "unifican". Si no hay coincidencia, los campos de películas alquiladas se quedan vacías con valor NULL.
