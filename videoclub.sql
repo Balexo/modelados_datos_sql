@@ -28,7 +28,6 @@ create table if not exists direccion(
 create table if not exists peliculas( 
 	id_pelicula serial primary key,
 	titulo varchar(80) not null,
-	ano_publicacion integer null,
 	sipnosis text null	
 );
 
@@ -54,10 +53,15 @@ create table if not exists directores_pelicula(
 	id_director integer not null
 );
 
+create table if not exists copias_pelicula(
+	id_copia serial primary key,
+	id_pelicula integer not null
+);
+
 
 create table if not exists peliculas_prestadas(  
-	id_copia serial primary key,
-	id_peliculas integer not null,
+	id_peliculas_prestadas serial primary key,
+	id_copia integer not null,
 	id_socio integer not null,
 	fecha_alquiler_texto date not null,
 	fecha_prestamo date not null,
@@ -119,10 +123,15 @@ add constraint fk_directores_directores_genero
 foreign key (id_director)
 references directores(id_director);
 
-alter table peliculas_prestadas
-add constraint fk_peliculas_peliculas_prestadas
-foreign key (id_peliculas)
+alter table copias_pelicula
+add constraint fk_peliculas_copias_pelicula
+foreign key (id_pelicula)
 references peliculas(id_pelicula);
+
+alter table peliculas_prestadas
+add constraint fk_copias_peliculas_peliculas_prestadas
+foreign key (id_copia)
+references copias_pelicula(id_copia);
 
 alter table peliculas_prestadas
 add constraint fk_socios_peliculas_prestadas
@@ -648,6 +657,7 @@ INSERT INTO tmp_videoclub (id_copia,fecha_alquiler_texto,dni,nombre,apellido_1,a
 	 (306,'2024-01-07','6810904Y','Hugo','Torres','Ferrer','hugo.torres.ferrer@gmail.com','649016903','47006','1994-06-05','50','1','Der.','Federico García Lorca','1Der.','La doncella','Thriller','Corea, década de 1930, durante la colonización japonesa. Una joven llamada Sookee es contratada como doncella de una rica mujer japonesa, Hideko, que vive recluida en una gran mansión bajo la influencia de un tirano. Sookee guarda un secreto y con la ayuda de un estafador que se hace pasar por un conde japonés, planea algo para Hideko.','Park Chan-wook','2024-01-07','2024-01-08'),
 	 (308,'2024-01-25','1638778M','Angel','Lorenzo','Caballero','angel.lorenzo.caballero@gmail.com','698073069','47008','2011-07-30','82','1','Izq.','Sol','1Izq.','El bazar de las sorpresas','Comedia','Alfred Kralik es el tímido jefe de vendedores de Matuschek y Compañía, una tienda de Budapest. Todas las mañanas, los empleados esperan juntos la llegada de su jefe, Hugo Matuschek. A pesar de su timidez, Alfred responde al anuncio de un periódico y mantiene un romance por carta. Su jefe decide contratar a una tal Klara Novak en contra de la opinión de Alfred. En el trabajo, Alfred discute constantemente con ella, sin sospechar que es su corresponsal secreta.','Ernst Lubitsch','2024-01-25',NULL);
 
+	
 insert into socios(dni_socio, nombre, apellido1, apellido2, fecha_nacimiento) 
 select distinct tv.dni, tv.nombre, tv.apellido_1, tv.apellido_2, cast(tv.fecha_nacimiento as date) from tmp_videoclub tv
 order by tv.dni;
@@ -661,9 +671,13 @@ insert into direccion(id_socio, codigo_postal, calle,numero, piso)
 select distinct s.id_socio, tv.codigo_postal, tv.calle, tv.numero, tv.piso from tmp_videoclub tv
 inner join socios s on s.dni_socio  = tv.dni;
 
-insert into peliculas(id_pelicula, titulo, sipnosis)
-select distinct tv.id_copia, tv.titulo, tv.sinopsis from tmp_videoclub tv
-order by tv.id_copia;
+insert into peliculas(titulo, sipnosis)
+select distinct tv.titulo, tv.sinopsis from tmp_videoclub tv
+order by tv.titulo ;
+
+insert into copias_pelicula(id_copia, id_pelicula)
+select distinct tv.id_copia, p.id_pelicula from tmp_videoclub tv
+inner join peliculas p on p.titulo  = tv.titulo;
 
 insert into directores (director)
 select distinct tv.director from tmp_videoclub tv;
@@ -683,102 +697,70 @@ select distinct p.id_pelicula, g.id_genero from tmp_videoclub tv
 inner join peliculas p on p.titulo = tv.titulo
 inner join generos g on g.genero = tv.genero;
 
-insert into peliculas_prestadas (id_peliculas, id_socio, fecha_alquiler_texto, fecha_prestamo, fecha_devolucion)
-select p.id_pelicula, s.id_socio, tv.fecha_alquiler_texto, tv.fecha_alquiler, tv.fecha_devolucion from tmp_videoclub tv
+insert into peliculas_prestadas (id_copia, id_socio, fecha_alquiler_texto, fecha_prestamo, fecha_devolucion)
+select cp.id_copia, s.id_socio, tv.fecha_alquiler_texto, tv.fecha_alquiler, tv.fecha_devolucion from tmp_videoclub tv
 inner join socios s on s.dni_socio = tv.dni 
-inner join peliculas p on p.id_pelicula = tv.id_copia;
+inner join copias_pelicula cp on cp.id_copia  = tv.id_copia;
 
 /*Que películas están disponibles para alquilar en este momento*/
 
-select p.titulo, count(id_copia) as num_copias_disponibles from peliculas_prestadas pp 
-inner join peliculas p on p.id_pelicula = pp.id_peliculas  
-where fecha_devolucion is not null
-group by p.titulo
+select distinct p.titulo, pp.id_copia from peliculas_prestadas pp
+inner join copias_pelicula cp on cp.id_copia = pp.id_copia
+inner join peliculas p on p.id_pelicula = cp.id_pelicula
+where fecha_devolucion is null 
 order by p.titulo;
-
 /*
  Cual es el género favorito de cada uno de mis socios para poder recomendarle
 películas cuando venga.
  */
 
-create view socios_num_alquileres_genero as select s.id_socio, s.nombre || ' ' || s.apellido1 || ' ' || s.apellido2 as nombre_completo, g.genero, count(*) as num_alquileres
-from peliculas_prestadas pp
-inner join socios s on s.id_socio = pp.id_socio 
-inner join peliculas p on p.id_pelicula = pp.id_peliculas 
-inner join peliculas_genero pg on pg.id_pelicula = p.id_pelicula 
+create view peliculas_genero_socio 
+	as select 
+	s.id_socio, 
+	s.nombre || ' ' || s.apellido1 || ' ' || s.apellido2 as nombre_completo, 
+	g.genero, count(*) as cantidad_peliculas_genero 
+	
+from peliculas_prestadas pp 
+inner join socios s on s.id_socio = pp.id_socio
+inner join copias_pelicula cp on cp.id_copia = pp.id_copia 
+inner join peliculas p on cp.id_pelicula = p.id_pelicula
+inner join peliculas_genero pg on p.id_pelicula = pg.id_pelicula 
 inner join generos g on g.id_genero = pg.id_genero 
 group by s.id_socio, nombre_completo, g.genero
-order by s.id_socio;
+order by nombre_completo;
 
 WITH MaxGenero AS (
-    SELECT id_socio, MAX(num_alquileres) AS max_genero_alquileres
-    FROM socios_num_alquileres_genero
+    select 
+    pgs.id_socio,
+    MAX(pgs.cantidad_peliculas_genero) AS max_genero_alquileres
+    FROM peliculas_genero_socio pgs
     GROUP BY id_socio
 )
-SELECT s.id_socio, s.nombre_completo, g.genero, m.max_genero_alquileres
-FROM socios_num_alquileres_genero s
-INNER JOIN MaxGenero m ON s.id_socio = m.id_socio
-INNER JOIN generos g ON s.genero = g.genero
-WHERE s.num_alquileres = m.max_genero_alquileres
-ORDER BY s.id_socio;
+SELECT 
+	pgs.id_socio, 
+	pgs.nombre_completo, 
+	pgs.genero, 
+	pgs.cantidad_peliculas_genero
+FROM peliculas_genero_socio pgs
+INNER JOIN MaxGenero m ON pgs.id_socio = m.id_socio
+WHERE pgs.cantidad_peliculas_genero = m.max_genero_alquileres
+ORDER BY pgs.id_socio;
+
 
 /*
-
-WITH alquileres_por_genero AS (
-    SELECT 
-        s.id_socio, 
-        g.genero, 
-        COUNT(*) as num_alquileres
-    FROM 
-        peliculas_prestadas pp
-        INNER JOIN socios s ON s.id_socio = pp.id_socio 
-        INNER JOIN peliculas p ON p.id_pelicula = pp.id_peliculas 
-        INNER JOIN peliculas_genero pg ON pg.id_pelicula = p.id_pelicula 
-        INNER JOIN generos g ON g.id_genero = pg.id_genero 
-    GROUP BY 
-        s.id_socio, 
-        g.genero
-),
-max_alquileres_por_socio AS (
-    SELECT 
-        id_socio, 
-        MAX(num_alquileres) as max_alquileres
-    FROM 
-        alquileres_por_genero
-    GROUP BY 
-        id_socio
-)
-SELECT 
-    a.id_socio, 
-    s.nombre || ' ' || s.apellido1 || ' ' || s.apellido2 as nombre_completo, 
-    a.genero, 
-    a.num_alquileres
-FROM 
-    alquileres_por_genero a
-    INNER JOIN max_alquileres_por_socio m ON a.id_socio = m.id_socio AND a.num_alquileres = m.max_alquileres
-    INNER JOIN socios s ON s.id_socio = a.id_socio
-ORDER BY 
-    a.id_socio;
-   
-   
-peliculas alquiladas por socio
-
-select s.nombre || ' ' || s.apellido1 || ' ' || s.apellido2 as nombre_completo, p.titulo 
-from peliculas_prestadas pp 
-inner join socios s on s.id_socio = pp.id_socio 
-inner join peliculas p on p.id_pelicula = pp.id_peliculas;
+select id_peliculas_prestadas, s.nombre || ' ' || s.apellido1 || ' ' || s.apellido2 as nombre_completo, p.titulo  from peliculas_prestadas pp 
+inner join socios s on s.id_socio = pp.id_socio
+inner join copias_pelicula cp on cp.id_copia = pp.id_copia 
+inner join peliculas p on cp.id_pelicula = p.id_pelicula
+order by nombre_completo;
 
 peliculas alquiladas por socio título y género
 
-select s.nombre || ' ' || s.apellido1 || ' ' || s.apellido2 as nombre_completo, p.titulo, g.genero 
-from peliculas_prestadas pp 
-inner join socios s on s.id_socio = pp.id_socio 
-inner join peliculas p on p.id_pelicula = pp.id_peliculas 
-inner join peliculas_genero pg on pg.id_pelicula =pp.id_peliculas 
-inner join generos g on g.id_genero =pg.id_genero
+select id_peliculas_prestadas, s.nombre || ' ' || s.apellido1 || ' ' || s.apellido2 as nombre_completo, p.titulo, g.genero from peliculas_prestadas pp 
+inner join socios s on s.id_socio = pp.id_socio
+inner join copias_pelicula cp on cp.id_copia = pp.id_copia 
+inner join peliculas p on cp.id_pelicula = p.id_pelicula
+inner join peliculas_genero pg on p.id_pelicula = pg.id_pelicula 
+inner join generos g on g.id_genero = pg.id_genero 
 order by nombre_completo;
-
 */
-
-
-
